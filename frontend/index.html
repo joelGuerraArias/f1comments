@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Dashboard 2025 | Clean Arch</title>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Montserrat', 'sans-serif'],
+                    },
+                    colors: {
+                        f1Red: '#E10600',
+                        f1Dark: '#15151E',
+                        f1Card: '#1F1F27',
+                        f1Border: 'rgba(255,255,255,0.1)'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <style>html, body { background-color: #15151E !important; min-height: 100%; }</style>
+</head>
+
+<body class="bg-f1Dark text-white h-screen overflow-hidden font-sans" style="background-color: #15151E;">
+    <div id="root" class="h-full w-full flex items-center justify-center" style="background-color: #15151E; color: #fff;">
+        <div class="text-center">
+            <div class="inline-block w-10 h-10 border-2 border-red-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-gray-300 font-semibold">Cargando F1 Dashboard…</p>
+        </div>
+    </div>
+    <script src="/static/app.bundle.js?v=1"></script>
+    <script>
+        // Si tras 12 s sigue el mensaje de carga, mostrar ayuda (p. ej. Babel lento o error en consola)
+        setTimeout(function() {
+            var root = document.getElementById('root');
+            if (root && root.querySelector && root.querySelector('.animate-spin') && !root.querySelector('nav')) {
+                root.innerHTML = '<div class="h-full w-full flex items-center justify-center p-8" style="background-color: #15151E; color: #fff;"><div class="text-center max-w-md"><p class="text-red-500 font-bold text-lg mb-2">La app tarda en cargar</p><p class="text-gray-400 text-sm mb-4">Abre la consola (F12) para ver errores, o recarga la página. Si usas la URL correcta (http://127.0.0.1:3006), la primera carga puede tardar unos segundos.</p><button onclick="location.reload()" class="px-4 py-2 bg-red-600 rounded-lg font-bold text-sm">Recargar</button></div></div>';
+            }
+        }, 12000);
+    </script>
+</body>
+
+</html>

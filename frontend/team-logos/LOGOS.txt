@@ -1,0 +1,13 @@
+Logos de equipo — F1 media (prioridad) + fallback local
+=========================================================
+
+1) CDN oficial (Podium Live): ver `TEAM_F1_LOGO_PATH` en `app.jsx`
+   Patrón:
+   https://media.formula1.com/image/upload/c_fit,h_64/q_auto/v1740000001/common/f1/{año}/{carpeta}/{año}{carpeta}logolight.webp
+   Excepción Audi: .../{año}/audi/{año}audilogowhite.webp
+
+2) Si el CDN falla, se usa fallback:
+   /static/team-logos/{slug}.svg
+   (sin filtros CSS en el <img>: filter: none)
+   Slugs: red-bull-racing, mclaren, ferrari, mercedes, aston-martin, alpine,
+   williams, racing-bulls, kick-sauber, haas-f1-team, cadillac, ...

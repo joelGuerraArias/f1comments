@@ -1,0 +1,102 @@
+# =================== Secretos / variables de entorno ===================
+# NUNCA subir archivos .env reales. Usa .env.example como plantilla.
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# =================== Python ===================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+ENV/
+.env-venv/
+backend/venv/
+
+# Logs y bases de datos locales
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+
+# =================== Node / Frontend ===================
+node_modules/
+package-lock.json.bak
+yarn-error.log
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+.next/
+.nuxt/
+.turbo/
+.parcel-cache/
+.cache/
+dist/
+build/
+out/
+
+# =================== Rust (f1-dash) ===================
+**/target/
+Cargo.lock.bak
+
+# =================== F1 dash (proyecto vendored, no subir todo) ===================
+# El folder "F1 dash" pesa ~2.4 GB (target Rust + node_modules dashboard).
+# Subimos solo los archivos minimos que el .bat necesita para Docker.
+F1 dash/**
+!F1 dash/
+!F1 dash/compose.yaml
+!F1 dash/compose.override.yaml
+!F1 dash/CONSUMIR_API.md
+!F1 dash/API_DATOS.md
+!F1 dash/ENDPOINTS.md
+!F1 dash/README.md
+!F1 dash/LICENSE
+!F1 dash/SETUP.md
+F1 dash/_git_upstream/
+
+# =================== IDE / OS ===================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# =================== Docker / runtime ===================
+.docker/
+docker-compose.override.local.yaml
+
+# =================== Ficheros generados por la app ===================
+# admin_config.json es config local; comentar si quieres versionarla.
+# backend/admin_config.json
+
+# Backups y temporales
+*.bak
+*.tmp
+*.temp
+*.orig
+
+# Output del frontend bundleado: se regenera con esbuild, pero lo
+# dejamos versionado para que el repo arranque sin Node. Si prefieres
+# regenerarlo siempre, descomenta la siguiente linea:
+# frontend/app.bundle.js

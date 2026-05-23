@@ -1,0 +1,81 @@
+/* Logos de equipo (podio): sin filtros ni transformaciones de color */
+.f1-team-logo {
+    filter: none !important;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    background-color: #15151E !important;
+}
+
+/* Evita el “brinco” horizontal al cambiar Podium Live ↔ Race State cuando aparece la barra de scroll */
+.app-main-scroll {
+    scrollbar-gutter: stable;
+}
+#root {
+    background-color: #15151E;
+}
+
+/* Custom Scrollbar for the table */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.driver-image-container {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    /* default */
+    overflow: hidden;
+    position: relative;
+    background: rgba(255, 255, 255, 0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.driver-image {
+    width: 130%;
+    height: 130%;
+    object-fit: cover;
+    object-position: top center;
+}
+
+.pos-1 {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    color: black !important;
+}
+
+.pos-2 {
+    background: linear-gradient(135deg, #C0C0C0, #A0A0A0);
+    color: black !important;
+}
+
+.pos-3 {
+    background: linear-gradient(135deg, #CD7F32, #B8860B);
+    color: white !important;
+}
+
+/* Truncate text utility */
+.truncate-custom {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

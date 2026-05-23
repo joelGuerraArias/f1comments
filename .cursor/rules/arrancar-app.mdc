@@ -1,0 +1,20 @@
+---
+description: Al arrancar la app hay que levantar primero el motor de API (f1-dash) y luego F1 Comments.
+globs: 
+alwaysApply: true
+---
+
+# Arrancar la app
+
+Cuando el usuario pida **arrancar**, **correr** o **iniciar la app** (o "run the app"):
+
+1. **Primero** arrancar el motor de API **f1-dash** (carpeta `F1 dash/`):
+   - **API** (puerto 4001): `cargo run -p api` desde `F1 dash/`
+   - **Realtime** (puerto 4000): `cargo run -p realtime` desde `F1 dash/`
+   Ambos en segundo plano (background).
+
+2. **Después** de unos segundos, arrancar **F1 Comments**: `uvicorn main:app --host 0.0.0.0 --port 3006` desde `backend/`, en segundo plano.
+
+Alternativa: ejecutar el script `.\start-app.ps1` desde la raíz del proyecto (Windows); hace los tres pasos en orden.
+
+El usuario abre en el navegador **http://127.0.0.1:3006**. Los datos en vivo los sirve f1-dash (4000/4001).

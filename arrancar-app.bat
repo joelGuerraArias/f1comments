@@ -59,16 +59,13 @@ echo       OK: Python disponible.
 
 REM --- 3) Levantar f1-dash con Docker -----------------------
 echo [3/5] Levantando f1-dash (api + realtime) via Docker...
-pushd "F1 dash"
-docker compose up -d api realtime
+docker compose -f "docker\compose.yaml" up -d
 if errorlevel 1 (
     echo.
     echo ERROR: Docker Compose fallo al levantar f1-dash.
-    popd
     pause
     exit /b 1
 )
-popd
 
 REM --- 4) Esperar a que f1-dash este listo ------------------
 echo       Esperando a que f1-dash responda en puertos 4000 y 4001...
@@ -125,7 +122,7 @@ echo   - F1COMMENTS:       http://127.0.0.1:3006/
 echo.
 echo  Para detener:
 echo    - Cierra la ventana "F1COMMENTS backend".
-echo    - Detener Docker: cd "F1 dash" ^&^& docker compose down
+echo    - Detener Docker: docker compose -f docker\compose.yaml down
 echo ===========================================================
 echo.
 

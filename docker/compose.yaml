@@ -1,0 +1,29 @@
+# F1COMMENTS - servicios de f1-dash via imagenes oficiales (slowlydev).
+# No requiere Rust ni compilar localmente. Solo Docker Desktop.
+#
+# Uso (desde la raiz del proyecto):
+#   docker compose -f docker/compose.yaml up -d
+#
+# Bajar:
+#   docker compose -f docker/compose.yaml down
+
+services:
+  api:
+    image: ghcr.io/slowlydev/f1-dash-api:latest
+    ports:
+      - "4001:80"
+    environment:
+      - RUST_LOG=api=info
+      - ADDRESS=0.0.0.0:80
+      - ORIGIN=http://localhost:3006
+    restart: unless-stopped
+
+  realtime:
+    image: ghcr.io/slowlydev/f1-dash-realtime:latest
+    ports:
+      - "4000:80"
+    environment:
+      - RUST_LOG=realtime=info
+      - ADDRESS=0.0.0.0:80
+      - ORIGIN=http://localhost:3006
+    restart: unless-stopped

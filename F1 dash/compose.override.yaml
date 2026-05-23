@@ -1,8 +1,0 @@
-# Expone la API en 4001 (dashboard .env.example usa API_URL=http://localhost:4001)
-services:
-  api:
-    ports:
-      - 4001:80
-  web:
-    environment:
-      - API_URL=http://localhost:4001

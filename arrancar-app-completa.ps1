@@ -8,6 +8,8 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = $PSScriptRoot
+$DockerDir = Join-Path $ProjectRoot "docker"
+$DockerComposeFile = Join-Path $DockerDir "compose.yaml"
 $F1DashDir = Join-Path $ProjectRoot "F1 dash"
 $BackendDir = Join-Path $ProjectRoot "backend"
 
@@ -124,7 +126,7 @@ $apiUp = $false
 $realtimeUp = $false
 $f1DashMethod = "none"
 
-if (Test-DockerRunning -and (Test-Path (Join-Path $F1DashDir "compose.yaml"))) {
+if ((Test-DockerRunning) -and (Test-Path $DockerComposeFile)) {
     $f1DashMethod = "docker"
 } else {
     $cargoFallback = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
@@ -136,19 +138,14 @@ if (Test-DockerRunning -and (Test-Path (Join-Path $F1DashDir "compose.yaml"))) {
 
 switch ($f1DashMethod) {
     "docker" {
-        Write-Host "f1-dash: usando Docker (api + realtime, sin web)" -ForegroundColor Cyan
+        Write-Host "f1-dash: usando Docker (api 4001 + realtime 4000)" -ForegroundColor Cyan
         $dockerExe = Resolve-Executable -CommandName "docker"
-        Push-Location $F1DashDir
-        try {
-            & $dockerExe compose up -d api realtime | Out-Null
-        } finally {
-            Pop-Location
-        }
+        & $dockerExe compose -f $DockerComposeFile up -d | Out-Null
         Write-Host "Esperando containers de f1-dash..." -ForegroundColor DarkCyan
         $apiUp = Wait-Port -Name "f1-dash API" -Port 4001 -Retries 30 -SleepSeconds 2
         $realtimeUp = Wait-Port -Name "f1-dash Realtime" -Port 4000 -Retries 30 -SleepSeconds 2
         if (-not $apiUp -or -not $realtimeUp) {
-            Write-Host "Docker arranco pero los puertos no responden. Revisa 'docker compose logs' en la carpeta 'F1 dash'." -ForegroundColor Yellow
+            Write-Host "Docker arranco pero los puertos no responden. Revisa: docker compose -f docker/compose.yaml logs" -ForegroundColor Yellow
         }
     }
     "cargo" {

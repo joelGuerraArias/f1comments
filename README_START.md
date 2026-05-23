@@ -10,7 +10,7 @@ Guia para arrancar la app y entender que cambios se aplicaron.
 
 Doble click sobre `arrancar-app.bat` en la raiz del proyecto. El bat:
 - Verifica que Docker este corriendo (sino, te avisa y para).
-- Levanta f1-dash (api + realtime) via Docker.
+- Levanta f1-dash (api + realtime) via Docker usando `docker/compose.yaml`.
 - Espera a que respondan los puertos 4000/4001.
 - Libera el puerto 3006.
 - Arranca el backend en una ventana nueva.
@@ -18,7 +18,7 @@ Doble click sobre `arrancar-app.bat` en la raiz del proyecto. El bat:
 
 Para detener:
 - Cierra la ventana "F1COMMENTS backend".
-- Detener Docker: `cd "F1 dash"` y luego `docker compose down`.
+- Detener Docker: `docker compose -f docker/compose.yaml down`.
 
 ### Opcion 2: PowerShell
 
@@ -40,24 +40,20 @@ URL final: **http://127.0.0.1:3006/**
 
 ### Opcion A: Docker (recomendado, mas facil)
 
-Si tienes Docker Desktop, **no necesitas Rust ni Visual C++**:
+Si tienes Docker Desktop, **no necesitas Rust ni Visual C++**. El repo trae su propio compose en `docker/compose.yaml` (no depende de la carpeta `F1 dash`):
 
 ```powershell
-cd "F1 dash"
-docker compose up -d api realtime
+docker compose -f docker/compose.yaml up -d
 ```
 
 Esto descarga imagenes oficiales de `ghcr.io/slowlydev/f1-dash-*` y expone:
 - API en `http://127.0.0.1:4001`
 - Realtime en `http://127.0.0.1:4000`
 
-> **Importante:** levantamos solo `api` y `realtime`, no el servicio `web` (Next.js en 3000). Ese `web` no lo necesitamos y suele chocar con otros procesos en el puerto 3000.
-
 Para detenerlo:
 
 ```powershell
-cd "F1 dash"
-docker compose down
+docker compose -f docker/compose.yaml down
 ```
 
 ### Opcion B: Rust nativo (mas pesado)

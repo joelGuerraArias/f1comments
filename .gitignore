@@ -56,20 +56,10 @@ out/
 **/target/
 Cargo.lock.bak
 
-# =================== F1 dash (proyecto vendored, no subir todo) ===================
-# El folder "F1 dash" pesa ~2.4 GB (target Rust + node_modules dashboard).
-# Subimos solo los archivos minimos que el .bat necesita para Docker.
-F1 dash/**
-!F1 dash/
-!F1 dash/compose.yaml
-!F1 dash/compose.override.yaml
-!F1 dash/CONSUMIR_API.md
-!F1 dash/API_DATOS.md
-!F1 dash/ENDPOINTS.md
-!F1 dash/README.md
-!F1 dash/LICENSE
-!F1 dash/SETUP.md
-F1 dash/_git_upstream/
+# =================== F1 dash (proyecto upstream de slowlydev, no se sube) ===================
+# Es codigo de terceros (slowlydev/f1-dash). Nuestro repo usa sus imagenes Docker
+# desde docker/compose.yaml; no necesitamos vendear su codigo fuente.
+F1 dash/
 
 # =================== IDE / OS ===================
 .vscode/

@@ -2,7 +2,7 @@ const { useState, useEffect, useRef } = React;
 
 const App = () => {
     const [view, setView] = useState('positions'); // 'positions', 'narration', 'podium', 'api', 'admin', 'data'
-    const [raceState, setRaceState] = useState({ lap: 0, positions: [], race_control: [], session_info: {}, total_laps: 0 });
+    const [raceState, setRaceState] = useState({ lap: 0, positions: [], race_control: [], session_info: {}, total_laps: 0, live: false });
     const [isNarrationActive, setIsNarrationActive] = useState(false);
     const [narrationHistory, setNarrationHistory] = useState([]);
     const [audioQueue, setAudioQueue] = useState([]);
@@ -189,6 +189,8 @@ const App = () => {
                         race_control: Array.isArray(data.race_control) ? data.race_control : [],
                         weather: data.weather,
                         session_info: data.session_info || {},
+                        live: data.live !== false && Array.isArray(data.positions) && data.positions.length > 0,
+                        message: data.message || '',
                     });
                 }
             } catch (err) {
@@ -1007,13 +1009,34 @@ const App = () => {
                     <div className="flex gap-4">
                         <div className="text-right">
                             <p className="text-[10px] font-black text-gray-600 uppercase tracking-[0.2em] mb-1">Race Status</p>
-                            <div className="bg-green-500/10 text-green-500 border border-green-500/20 px-4 py-1.5 rounded-full font-black text-xs">
-                                <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                                LIVE TRACK DATA
-                            </div>
+                            {raceState.live ? (
+                                <div className="bg-green-500/10 text-green-500 border border-green-500/20 px-4 py-1.5 rounded-full font-black text-xs">
+                                    <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+                                    LIVE TRACK DATA
+                                </div>
+                            ) : (
+                                <div className="bg-amber-500/10 text-amber-400 border border-amber-500/30 px-4 py-1.5 rounded-full font-black text-xs">
+                                    <span className="inline-block w-2 h-2 bg-amber-400 rounded-full mr-2"></span>
+                                    SIN DATOS EN VIVO
+                                </div>
+                            )}
                         </div>
                     </div>
                 </header>
+
+                {!raceState.live && (
+                    <div className="mb-8 p-5 rounded-2xl border border-amber-700/40 bg-amber-950/20 text-amber-200">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-400 mb-1">
+                            <i className="fas fa-triangle-exclamation mr-2"></i>Sin datos en vivo del API
+                        </p>
+                        <p className="text-sm leading-snug">
+                            {raceState.message || 'f1-dash no esta respondiendo o aun no hay sesion activa.'}
+                        </p>
+                        <p className="text-xs text-amber-300/70 mt-2 font-mono">
+                            docker compose -f docker/compose.yaml up -d
+                        </p>
+                    </div>
+                )}
 
                 {view === 'podium' ? (
                     <div className="h-[calc(100vh-200px)] min-h-[420px] flex gap-2 md:gap-3 mt-2 overflow-hidden">

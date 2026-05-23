@@ -116,10 +116,11 @@ Si editas `frontend/app.jsx`, regenera el bundle:
 npx --yes esbuild "frontend/app.jsx" --bundle --platform=browser --format=iife --outfile="frontend/app.bundle.js"
 ```
 
-### 5.2 Backend: simulador como fallback
-- `backend/main.py` ahora usa `RaceSimulator` (parrilla 2026) si f1-dash no devuelve datos.
-- Asi el dashboard nunca esta vacio.
-- Cuando f1-dash vuelve, automaticamente toma sus datos.
+### 5.2 Backend: solo datos reales del API
+- `backend/main.py` siempre devuelve datos del API f1-dash. Si f1-dash no
+  responde o aun no hay sesion activa, `/api/state` devuelve `live: false`
+  con un mensaje claro y el dashboard muestra un banner de aviso.
+- Sin simulador: nunca se inventan datos.
 
 ### 5.3 Script de arranque tolerante
 - `arrancar-app-completa.ps1` ya no aborta si falta `cargo`.

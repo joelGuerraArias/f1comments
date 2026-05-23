@@ -27,7 +27,6 @@ F1COMMENTS/
 │   ├── ai_engine.py      # Generación de comentarios (DeepSeek)
 │   ├── audio_engine.py   # Speech API (gpt-realtime-2 por defecto)
 │   ├── endpoint_explorer.py
-│   ├── race_simulator.py # Simulador (no usado en producción)
 │   ├── admin_config.json # Config Admin persistida (carrera + info)
 │   ├── .env              # Claves (no subir a repo)
 │   └── requirements.txt
@@ -137,7 +136,7 @@ Abrir en el navegador: **http://127.0.0.1:3006**
 
 ## Parrilla 2026
 
-La IA usa una parrilla fija 2026 (pilotos y equipos) para evitar alucinaciones. Está definida en `backend/ai_engine.py` (GRID_2026) y en `backend/race_simulator.py` (DRIVERS_2026) para el simulador.
+La IA usa una parrilla fija 2026 (pilotos y equipos) para evitar alucinaciones. Está definida en `backend/ai_engine.py` (GRID_2026).
 
 ---
 

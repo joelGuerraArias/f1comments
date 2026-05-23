@@ -3,7 +3,7 @@
   var { useState, useEffect, useRef } = React;
   var App = () => {
     const [view, setView] = useState("positions");
-    const [raceState, setRaceState] = useState({ lap: 0, positions: [], race_control: [], session_info: {}, total_laps: 0 });
+    const [raceState, setRaceState] = useState({ lap: 0, positions: [], race_control: [], session_info: {}, total_laps: 0, live: false });
     const [isNarrationActive, setIsNarrationActive] = useState(false);
     const [narrationHistory, setNarrationHistory] = useState([]);
     const [audioQueue, setAudioQueue] = useState([]);
@@ -160,7 +160,9 @@
               positions: Array.isArray(data.positions) ? data.positions : [],
               race_control: Array.isArray(data.race_control) ? data.race_control : [],
               weather: data.weather,
-              session_info: data.session_info || {}
+              session_info: data.session_info || {},
+              live: data.live !== false && Array.isArray(data.positions) && data.positions.length > 0,
+              message: data.message || ""
             });
           }
         } catch (err) {
@@ -824,7 +826,7 @@
       }
       if (!sName) return null;
       return /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-stopwatch text-blue-400" }), /* @__PURE__ */ React.createElement("span", null, sName.toUpperCase()), clockRem && /* @__PURE__ */ React.createElement("span", { className: `ml-2 px-2 py-0.5 rounded-md font-mono text-xs font-black ${isFinished ? "bg-gray-800 text-gray-400" : "bg-red-600/15 text-red-400 border border-red-600/30"}` }, isFinished ? "FIN" : clockRem));
-    })(), /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-thermometer-half text-orange-400" }), " ", isPlaying ? "ON AIR" : raceState.weather && raceState.weather.airTemp != null ? `${Math.round(raceState.weather.airTemp)}\xB0C AIR` : "\u2014\xB0C AIR"))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("p", { className: "text-[10px] font-black text-gray-600 uppercase tracking-[0.2em] mb-1" }, "Race Status"), /* @__PURE__ */ React.createElement("div", { className: "bg-green-500/10 text-green-500 border border-green-500/20 px-4 py-1.5 rounded-full font-black text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse" }), "LIVE TRACK DATA")))), view === "podium" ? /* @__PURE__ */ React.createElement("div", { className: "h-[calc(100vh-200px)] min-h-[420px] flex gap-2 md:gap-3 mt-2 overflow-hidden" }, positionsSortedByRank.slice(0, 5).map((driver, idx) => {
+    })(), /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-thermometer-half text-orange-400" }), " ", isPlaying ? "ON AIR" : raceState.weather && raceState.weather.airTemp != null ? `${Math.round(raceState.weather.airTemp)}\xB0C AIR` : "\u2014\xB0C AIR"))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("p", { className: "text-[10px] font-black text-gray-600 uppercase tracking-[0.2em] mb-1" }, "Race Status"), raceState.live ? /* @__PURE__ */ React.createElement("div", { className: "bg-green-500/10 text-green-500 border border-green-500/20 px-4 py-1.5 rounded-full font-black text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse" }), "LIVE TRACK DATA") : /* @__PURE__ */ React.createElement("div", { className: "bg-amber-500/10 text-amber-400 border border-amber-500/30 px-4 py-1.5 rounded-full font-black text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "inline-block w-2 h-2 bg-amber-400 rounded-full mr-2" }), "SIN DATOS EN VIVO")))), !raceState.live && /* @__PURE__ */ React.createElement("div", { className: "mb-8 p-5 rounded-2xl border border-amber-700/40 bg-amber-950/20 text-amber-200" }, /* @__PURE__ */ React.createElement("p", { className: "text-[10px] font-black uppercase tracking-widest text-amber-400 mb-1" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation mr-2" }), "Sin datos en vivo del API"), /* @__PURE__ */ React.createElement("p", { className: "text-sm leading-snug" }, raceState.message || "f1-dash no esta respondiendo o aun no hay sesion activa."), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-amber-300/70 mt-2 font-mono" }, "docker compose -f docker/compose.yaml up -d")), view === "podium" ? /* @__PURE__ */ React.createElement("div", { className: "h-[calc(100vh-200px)] min-h-[420px] flex gap-2 md:gap-3 mt-2 overflow-hidden" }, positionsSortedByRank.slice(0, 5).map((driver, idx) => {
       const teamLogoUrl = getTeamLogoUrl(driver.team);
       return /* @__PURE__ */ React.createElement(
         "div",

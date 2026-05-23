@@ -19,7 +19,6 @@ from core_loop import NarrationLoop
 from audio_engine import generate_audio
 from interaction_engine import generate_listener_turn, transcribe_voice_clip
 from ai_engine import generate_race_commentary, _sorted_by_position
-from race_simulator import RaceSimulator
 from expert_engine import run_expert_session
 
 # Rutas absolutas respecto a este archivo (funcionan desde cualquier cwd)
@@ -54,10 +53,6 @@ narration_source = "api"
 # API client: f1-dash (Realtime 4000). start(), stop(), get_state(), refresh_now().
 api_client = None
 narration_loop = None
-
-# Simulador de respaldo: se usa cuando f1-dash no responde (no live data).
-# Permite ver el dashboard con los 22 pilotos 2026 aunque f1-dash este apagado.
-_simulator = RaceSimulator()
 
 
 class AdminConfigBody(BaseModel):
@@ -239,39 +234,33 @@ async def get_stats():
 
 @app.get("/api/state")
 async def get_state():
-    """Devuelve el estado actual de la carrera.
+    """Devuelve el estado actual de la carrera desde f1-dash (siempre datos del API).
 
-    Prioridad:
-    1. f1-dash si esta disponible y trae posiciones.
-    2. Simulador (RaceSimulator con parrilla 2026) como fallback para que
-       el dashboard nunca se vea vacio aunque f1-dash este apagado.
+    Si f1-dash no responde o aun no tiene una sesion activa, devuelve un estado
+    vacio con la marca live=False; nunca se inventan datos simulados.
     """
     state: Dict = {}
     if api_client:
         state = api_client.get_state() or {}
 
     if not state.get("positions"):
-        sim_state = _simulator.get_state()
-        state = {
-            "lap": sim_state.get("lap", 1),
-            "total_laps": 57,
-            "positions": sim_state.get("positions", []),
-            "race_control": list(getattr(_simulator, "race_control_messages", [])),
-            "session_info": {
-                "meetingOfficialName": "FORMULA 1 SIMULADOR 2026",
-                "sessionName": "Race",
-                "sessionType": "Race",
-                "trackStatus": "AllClear",
-            },
-            "weather": {"airTemp": 24, "trackTemp": 31, "rainfall": 0},
+        return {
+            "lap": 0,
+            "total_laps": 0,
+            "positions": [],
+            "race_control": [],
+            "session_info": {},
+            "weather": {},
             "live_commentary": "",
             "team_radio": "",
             "grid_context": [],
             "pit_stops": [],
             "tyre_stints": [],
-            "is_simulated": True,
+            "live": False,
+            "message": "Sin datos en vivo. Verifica que f1-dash este corriendo (docker compose -f docker/compose.yaml up -d) o espera a una sesion activa.",
         }
 
+    state["live"] = True
     return state
 
 @app.get("/api/narration/latest")

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
-from fastapi import FastAPI, Response, Query, Body, UploadFile, File
+from fastapi import FastAPI, Response, Query, Body, UploadFile, File, WebSocket
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
@@ -20,6 +20,7 @@ from audio_engine import generate_audio
 from interaction_engine import generate_listener_turn, transcribe_voice_clip
 from ai_engine import generate_race_commentary, _sorted_by_position
 from race_simulator import RaceSimulator
+from expert_engine import run_expert_session
 
 # Rutas absolutas respecto a este archivo (funcionan desde cualquier cwd)
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -349,6 +350,55 @@ async def post_interaction_voice(audio: UploadFile = File(...)):
         "comments": segments,
         "lap": race_state.get("lap", 1),
     }
+
+
+@app.websocket("/api/expert/ws")
+async def expert_ws(client_ws: WebSocket):
+    """Modo Experto: proxy realtime entre el navegador y xAI (Eve, Grok voice).
+
+    El cliente envia/recibe el protocolo realtime de xAI tal cual; este endpoint
+    solo agrega autenticacion (XAI_API_KEY) y una inyeccion automatica del
+    estado de la carrera + ultimos comentarios cada ~3 min.
+    """
+    await client_ws.accept()
+    api_key = os.environ.get("XAI_API_KEY", "").strip()
+    if not api_key:
+        try:
+            await client_ws.send_text(json.dumps({
+                "type": "error",
+                "message": "XAI_API_KEY no configurada en .env",
+            }))
+        finally:
+            await client_ws.close()
+        return
+
+    def _get_state():
+        try:
+            return _state_for_narration()
+        except Exception:
+            return {}
+
+    def _get_latest_narration():
+        if not narration_loop:
+            return None
+        try:
+            return narration_loop.get_latest()
+        except Exception:
+            return None
+
+    def _get_race_name():
+        try:
+            return (admin_config or {}).get("race_name", "") or ""
+        except Exception:
+            return ""
+
+    await run_expert_session(
+        client_ws=client_ws,
+        api_key=api_key,
+        get_state=_get_state,
+        get_latest_narration=_get_latest_narration,
+        get_race_name=_get_race_name,
+    )
 
 
 # Mount Static Files (ruta absoluta para no depender del cwd)

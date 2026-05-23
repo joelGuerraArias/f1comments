@@ -28,6 +28,18 @@
     const [apiCallsCount, setApiCallsCount] = useState(0);
     const [dataEndpoints, setDataEndpoints] = useState({});
     const [dataLoading, setDataLoading] = useState({});
+    const [expertActive, setExpertActive] = useState(false);
+    const [expertStatus, setExpertStatus] = useState("idle");
+    const [expertError, setExpertError] = useState("");
+    const [expertTranscript, setExpertTranscript] = useState("");
+    const expertWsRef = useRef(null);
+    const expertCtxRef = useRef(null);
+    const expertPlayCtxRef = useRef(null);
+    const expertSourceRef = useRef(null);
+    const expertProcessorRef = useRef(null);
+    const expertMicStreamRef = useRef(null);
+    const expertNextStartRef = useRef(0);
+    const expertActiveSourcesRef = useRef([]);
     const lastNarrationId = useRef(0);
     const messagesEndRef = useRef(null);
     const currentAudioRef = useRef(null);
@@ -427,6 +439,270 @@
       }, 2e4);
       return () => clearInterval(timer);
     }, [view]);
+    const expertStopPlayback = () => {
+      const sources = expertActiveSourcesRef.current || [];
+      sources.forEach((s) => {
+        try {
+          s.stop();
+        } catch (_) {
+        }
+      });
+      expertActiveSourcesRef.current = [];
+      const ctx = expertPlayCtxRef.current;
+      if (ctx) expertNextStartRef.current = ctx.currentTime;
+    };
+    const expertPlayPCMChunk = (b64) => {
+      const ctx = expertPlayCtxRef.current;
+      if (!ctx) return;
+      try {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const aligned = bytes.length % 2 === 0 ? bytes : bytes.slice(0, bytes.length - 1);
+        const int16 = new Int16Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 2);
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+        const buffer = ctx.createBuffer(1, float32.length || 1, 24e3);
+        if (float32.length) buffer.copyToChannel(float32, 0, 0);
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(ctx.destination);
+        const startAt = Math.max(ctx.currentTime, expertNextStartRef.current || ctx.currentTime);
+        src.start(startAt);
+        expertNextStartRef.current = startAt + buffer.duration;
+        expertActiveSourcesRef.current.push(src);
+        src.onended = () => {
+          const arr = expertActiveSourcesRef.current;
+          const i = arr.indexOf(src);
+          if (i >= 0) arr.splice(i, 1);
+        };
+        setExpertStatus("speaking");
+      } catch (e) {
+        console.warn("expert play chunk error", e);
+      }
+    };
+    const expertHandleEvent = (event) => {
+      if (!event || typeof event.type !== "string") return;
+      switch (event.type) {
+        case "expert.proxy.connected":
+          setExpertStatus("listening");
+          setExpertError("");
+          break;
+        case "session.created":
+        case "session.updated":
+          setExpertStatus("listening");
+          break;
+        case "input_audio_buffer.speech_started":
+          expertStopPlayback();
+          try {
+            expertWsRef.current && expertWsRef.current.send(JSON.stringify({ type: "response.cancel" }));
+          } catch (_) {
+          }
+          setExpertStatus("listening");
+          break;
+        case "response.created":
+          setExpertStatus("speaking");
+          break;
+        case "response.output_audio.delta":
+          if (event.delta) expertPlayPCMChunk(event.delta);
+          break;
+        case "response.output_audio_transcript.delta":
+          if (event.delta) setExpertTranscript((prev) => (prev + event.delta).slice(-600));
+          break;
+        case "response.done":
+          setExpertStatus("listening");
+          setExpertTranscript((prev) => prev ? prev + "\n\u2014 Eve ha terminado \u2014\n" : prev);
+          break;
+        case "expert.injection":
+          setExpertTranscript((prev) => (prev + "\n\u2192 (actualizacion del API enviada a Eve)\n").slice(-1200));
+          break;
+        case "error":
+          setExpertStatus("error");
+          setExpertError(event.message || "Error desconocido en xAI");
+          break;
+        default:
+          break;
+      }
+    };
+    const expertCleanup = () => {
+      try {
+        expertProcessorRef.current && expertProcessorRef.current.disconnect();
+      } catch (_) {
+      }
+      try {
+        expertSourceRef.current && expertSourceRef.current.disconnect();
+      } catch (_) {
+      }
+      expertProcessorRef.current = null;
+      expertSourceRef.current = null;
+      const stream = expertMicStreamRef.current;
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        expertMicStreamRef.current = null;
+      }
+      try {
+        expertCtxRef.current && expertCtxRef.current.close();
+      } catch (_) {
+      }
+      expertCtxRef.current = null;
+      expertStopPlayback();
+      try {
+        expertPlayCtxRef.current && expertPlayCtxRef.current.close();
+      } catch (_) {
+      }
+      expertPlayCtxRef.current = null;
+      const ws = expertWsRef.current;
+      expertWsRef.current = null;
+      if (ws) {
+        try {
+          ws.close();
+        } catch (_) {
+        }
+      }
+    };
+    const expertStart = async () => {
+      setExpertError("");
+      setExpertTranscript("");
+      setExpertStatus("connecting");
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setExpertError("Este navegador no permite usar el microfono.");
+        setExpertStatus("error");
+        return false;
+      }
+      let micStream = null;
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+      } catch (e) {
+        setExpertError("Sin permiso o sin microfono (necesita HTTPS salvo localhost).");
+        setExpertStatus("error");
+        return false;
+      }
+      expertMicStreamRef.current = micStream;
+      let captureCtx;
+      try {
+        captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24e3 });
+      } catch (_) {
+        captureCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      expertCtxRef.current = captureCtx;
+      const fromRate = captureCtx.sampleRate;
+      let playCtx;
+      try {
+        playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24e3 });
+      } catch (_) {
+        playCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      expertPlayCtxRef.current = playCtx;
+      expertNextStartRef.current = playCtx.currentTime;
+      expertActiveSourcesRef.current = [];
+      const wsProto = window.location.protocol === "https:" ? "wss" : "ws";
+      const wsUrl = `${wsProto}://${window.location.host}/api/expert/ws`;
+      const ws = new WebSocket(wsUrl);
+      expertWsRef.current = ws;
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          expertHandleEvent(data);
+        } catch (_) {
+        }
+      };
+      ws.onerror = () => {
+        setExpertError("Error en la conexion realtime.");
+        setExpertStatus("error");
+      };
+      ws.onclose = () => {
+        setExpertActive(false);
+        setExpertStatus("idle");
+        expertCleanup();
+      };
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("timeout abriendo WS")), 8e3);
+        ws.onopen = () => {
+          clearTimeout(t);
+          resolve();
+        };
+      }).catch((e) => {
+        setExpertError("No pude abrir el canal con el backend.");
+        setExpertStatus("error");
+        try {
+          ws.close();
+        } catch (_) {
+        }
+        return null;
+      });
+      if (ws.readyState !== WebSocket.OPEN) return false;
+      const source = captureCtx.createMediaStreamSource(micStream);
+      const processor = captureCtx.createScriptProcessor(4096, 1, 1);
+      expertSourceRef.current = source;
+      expertProcessorRef.current = processor;
+      const downsample = (input) => {
+        if (Math.abs(fromRate - 24e3) < 1) return input;
+        const ratio = fromRate / 24e3;
+        const outLen = Math.floor(input.length / ratio);
+        const out = new Float32Array(outLen);
+        for (let i = 0; i < outLen; i++) {
+          const idx = i * ratio;
+          const i0 = Math.floor(idx);
+          const i1 = Math.min(i0 + 1, input.length - 1);
+          const t = idx - i0;
+          out[i] = input[i0] * (1 - t) + input[i1] * t;
+        }
+        return out;
+      };
+      processor.onaudioprocess = (e) => {
+        if (!expertWsRef.current || expertWsRef.current.readyState !== WebSocket.OPEN) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const ds = downsample(input);
+        const int16 = new Int16Array(ds.length);
+        for (let i = 0; i < ds.length; i++) {
+          const s = Math.max(-1, Math.min(1, ds[i]));
+          int16[i] = s < 0 ? s * 32768 : s * 32767;
+        }
+        const bytes = new Uint8Array(int16.buffer);
+        let bin = "";
+        const CHUNK = 32768;
+        for (let i = 0; i < bytes.byteLength; i += CHUNK) {
+          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        }
+        const b64 = btoa(bin);
+        try {
+          expertWsRef.current.send(JSON.stringify({ type: "input_audio_buffer.append", audio: b64 }));
+        } catch (_) {
+        }
+      };
+      source.connect(processor);
+      const silentGain = captureCtx.createGain();
+      silentGain.gain.value = 0;
+      processor.connect(silentGain);
+      silentGain.connect(captureCtx.destination);
+      setExpertStatus("listening");
+      return true;
+    };
+    const expertStop = () => {
+      try {
+        const ws = expertWsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "response.cancel" }));
+      } catch (_) {
+      }
+      expertCleanup();
+      setExpertActive(false);
+      setExpertStatus("idle");
+    };
+    const toggleExpertMode = async () => {
+      if (expertActive) {
+        expertStop();
+        return;
+      }
+      const ok = await expertStart();
+      if (ok) setExpertActive(true);
+    };
+    useEffect(() => {
+      return () => {
+        expertCleanup();
+      };
+    }, []);
     return /* @__PURE__ */ React.createElement("div", { className: "flex h-screen bg-black text-white overflow-hidden", style: { fontFamily: "'Montserrat', sans-serif" } }, /* @__PURE__ */ React.createElement("div", { className: `${isSidebarOpen ? "w-64" : "w-20"} transition-all duration-300 bg-gray-950 border-r border-gray-800 flex flex-col items-center py-6 gap-8` }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 px-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-10 h-10 bg-red-600 rounded-lg flex items-center justify-center font-bold text-xl italic shadow-lg shadow-red-900/20" }, "F1"), isSidebarOpen && /* @__PURE__ */ React.createElement("span", { className: "font-bold tracking-tighter text-xl italic" }, "DASHBOARD")), /* @__PURE__ */ React.createElement("nav", { className: "flex flex-col w-full gap-2 px-3" }, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -518,7 +794,17 @@
       },
       /* @__PURE__ */ React.createElement("i", { className: `fas ${micBusy === "recording" ? "fa-microphone-lines" : "fa-microphone"}` }),
       !isSidebarOpen ? null : micBusy === "recording" ? "ENVIAR al aire" : micBusy === "sending" ? "PROCESANDO\u2026" : "HABLAR (tap x2)"
-    ), isSidebarOpen && micFeedback && /* @__PURE__ */ React.createElement("p", { className: "text-[10px] text-gray-500 leading-snug" }, micFeedback))), /* @__PURE__ */ React.createElement("main", { className: "app-main-scroll flex-1 p-8 overflow-y-auto bg-gradient-to-br from-black via-gray-950 to-gray-900" }, /* @__PURE__ */ React.createElement("header", { className: "flex justify-between items-end mb-10 border-b border-gray-800/50 pb-8" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { className: "text-4xl font-black italic tracking-tighter mb-1 select-none" }, (() => {
+    ), isSidebarOpen && micFeedback && /* @__PURE__ */ React.createElement("p", { className: "text-[10px] text-gray-500 leading-snug" }, micFeedback), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => toggleExpertMode(),
+        title: expertActive ? "Apagar modo Experto (Eve deja de escuchar y hablar)" : "Activar modo Experto: Eve te escucha por mic y comenta cada 3 min con datos del API",
+        className: `flex items-center justify-center gap-2 w-full p-3 rounded-xl font-bold transition-all border ${expertActive ? expertStatus === "speaking" ? "bg-emerald-700 border-emerald-400 text-white animate-pulse shadow-emerald-900/40" : "bg-emerald-800 border-emerald-500 text-white" : "bg-gray-900 border-emerald-700/60 text-emerald-300 hover:bg-gray-800 hover:border-emerald-500"}`
+      },
+      /* @__PURE__ */ React.createElement("i", { className: `fas ${expertActive ? expertStatus === "speaking" ? "fa-volume-high" : "fa-headset" : "fa-graduation-cap"}` }),
+      !isSidebarOpen ? null : expertActive ? expertStatus === "speaking" ? "EVE HABLANDO" : expertStatus === "connecting" ? "CONECTANDO\u2026" : "EVE ESCUCHANDO" : "EXPERTO (Eve)"
+    ), isSidebarOpen && expertActive && /* @__PURE__ */ React.createElement("div", { className: "bg-emerald-950/30 border border-emerald-800/40 rounded-xl p-2.5 space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", { className: "text-[9px] font-black text-emerald-400 uppercase tracking-widest" }, "Eve"), /* @__PURE__ */ React.createElement("span", { className: "text-[9px] font-bold text-emerald-300" }, expertStatus.toUpperCase())), expertTranscript && /* @__PURE__ */ React.createElement("p", { className: "text-[10px] text-emerald-100/80 leading-snug max-h-32 overflow-y-auto whitespace-pre-wrap font-medium" }, expertTranscript.slice(-400)), /* @__PURE__ */ React.createElement("p", { className: "text-[9px] text-emerald-500/70 leading-snug" }, "Eve recibe un resumen del API + comentarios de Mark cada ~3 min.")), isSidebarOpen && !expertActive && expertError && /* @__PURE__ */ React.createElement("p", { className: "text-[10px] text-red-400 leading-snug" }, expertError))), /* @__PURE__ */ React.createElement("main", { className: "app-main-scroll flex-1 p-8 overflow-y-auto bg-gradient-to-br from-black via-gray-950 to-gray-900" }, /* @__PURE__ */ React.createElement("header", { className: "flex justify-between items-end mb-10 border-b border-gray-800/50 pb-8" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { className: "text-4xl font-black italic tracking-tighter mb-1 select-none" }, (() => {
       const name = (adminConfig.race_name || "").trim() || (raceState.session_info && raceState.session_info.meetingOfficialName || "").replace("FORMULA 1 ", "").replace("FORMULA1 ", "") || "F1 GRAND PRIX";
       const i = name.indexOf(" de ");
       const part1 = i >= 0 ? name.slice(0, i) : name.split(" ")[0] || name;

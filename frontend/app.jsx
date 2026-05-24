@@ -154,6 +154,40 @@ const App = () => {
         return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : name.toUpperCase();
     };
 
+    /** Mapa equipo -> slug usado por F1 en las rutas de imagenes (cuerpo entero). */
+    const TEAM_SLUG_F1 = {
+        'Red Bull Racing': 'redbullracing',
+        'Ferrari': 'ferrari',
+        'Scuderia Ferrari': 'ferrari',
+        'Mercedes': 'mercedes',
+        'McLaren': 'mclaren',
+        'Aston Martin': 'astonmartin',
+        'Alpine': 'alpine',
+        'Williams': 'williams',
+        'RB': 'racingbulls',
+        'Racing Bulls': 'racingbulls',
+        'Kick Sauber': 'kicksauber',
+        'Haas F1 Team': 'haas',
+        'Haas': 'haas',
+        'Audi': 'audi',
+        'Cadillac': 'cadillac',
+    };
+
+    /** Construye la URL de cuerpo entero oficial de F1 a partir de la URL antigua + el equipo.
+     * Ejemplo (Alonso):
+     *   .../drivers/F/FERALO01_Fernando_Alonso/feralo01.png.transform/...
+     *   -> .../common/f1/2026/astonmartin/feralo01/2026astonmartinferalo01right.webp
+     */
+    const toFullBodyUrl = (photoUrl, team) => {
+        if (!photoUrl || typeof photoUrl !== 'string') return photoUrl;
+        const m = photoUrl.match(/\/([a-z]{3,8}\d{2})\.png/i);
+        if (!m) return photoUrl;
+        const code = m[1].toLowerCase();
+        const slug = TEAM_SLUG_F1[team];
+        if (!slug) return photoUrl;
+        return `https://media.formula1.com/image/upload/c_fill,w_720/q_auto/v1740000001/common/f1/2026/${slug}/${code}/2026${slug}${code}right.webp`;
+    };
+
     const TEAM_PODIUM_LABEL = {
         'Red Bull Racing': 'RED BULL',
         'Haas F1 Team': 'HAAS',
@@ -773,7 +807,7 @@ const App = () => {
     return (
         <div className="flex h-screen bg-black text-white overflow-hidden" style={{ fontFamily: "'Montserrat', sans-serif" }}>
             {/* Sidebar */}
-            <div className={`${isSidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 bg-gray-950 border-r border-gray-800 flex flex-col items-center py-6 gap-8`}>
+            <div className={`${isSidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 bg-gray-950 border-r border-gray-800 flex flex-col items-center py-6 gap-8 overflow-y-auto`}>
                 <div className="flex items-center gap-3 px-4">
                     <div className="w-10 h-10 bg-red-600 rounded-lg flex items-center justify-center font-bold text-xl italic shadow-lg shadow-red-900/20">F1</div>
                     {isSidebarOpen && <span className="font-bold tracking-tighter text-xl italic">DASHBOARD</span>}
@@ -1073,15 +1107,21 @@ const App = () => {
                                         <p className="text-white/55 font-bold text-[10px] md:text-[11px] tracking-[0.15em] truncate">{teamPodiumLabel(driver.team)}</p>
                                     </div>
                                 </div>
-                                <div className="relative flex-1 min-h-[180px] flex items-end justify-center pt-2 pb-4">
-                                    <div className="absolute left-2 md:left-3 top-[42%] z-20 w-9 h-9 md:w-10 md:h-10 rounded-full bg-red-600 flex items-center justify-center font-black text-white text-base md:text-lg border-2 border-white shadow-[0_4px_14px_rgba(220,38,38,0.55)]">
+                                <div className="relative flex-1 min-h-[260px] flex items-end justify-center pt-2 pb-2">
+                                    <div className="absolute left-2 md:left-3 top-[18%] z-20 w-9 h-9 md:w-10 md:h-10 rounded-full bg-red-600 flex items-center justify-center font-black text-white text-base md:text-lg border-2 border-white shadow-[0_4px_14px_rgba(220,38,38,0.55)]">
                                         {driver.position}
                                     </div>
                                     <img
-                                        src={driver.photo_url}
+                                        src={toFullBodyUrl(driver.photo_url, driver.team)}
                                         alt={driver.name}
-                                        className="max-h-[92%] w-full object-contain object-bottom pointer-events-none select-none"
+                                        className="h-full w-full object-contain object-bottom pointer-events-none select-none"
                                         onError={(e) => {
+                                            // Si no existe la variante cuerpo entero, caer al headshot original.
+                                            if (!e.target.dataset.fb) {
+                                                e.target.dataset.fb = '1';
+                                                e.target.src = driver.photo_url;
+                                                return;
+                                            }
                                             e.target.src = 'https://media.formula1.com/image/upload/c_fill,w_720/q_auto/v1740000000/common/f1/2026/drivers/fallback.webp';
                                         }}
                                     />

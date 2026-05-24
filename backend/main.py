@@ -20,6 +20,7 @@ from audio_engine import generate_audio
 from interaction_engine import generate_listener_turn, transcribe_voice_clip
 from ai_engine import generate_race_commentary, _sorted_by_position
 from expert_engine import run_expert_session
+import race_data_manager
 
 # Rutas absolutas respecto a este archivo (funcionan desde cualquier cwd)
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -70,6 +71,8 @@ async def lifespan(app: FastAPI):
     global api_client, narration_loop, admin_config
     admin_config = _load_admin_config()
 
+    race_data_manager.ensure_md_exists(admin_config)
+
     f1_dash_realtime = os.environ.get("F1_DASH_REALTIME_URL", "").strip() or os.environ.get("REALTIME_URL", "http://localhost:4000").strip()
     f1_dash_api = os.environ.get("F1_DASH_API_URL", "").strip() or os.environ.get("API_BASE_URL", "").strip()
     api_client = F1DashClient(realtime_base=f1_dash_realtime, api_base=f1_dash_api or None)
@@ -114,11 +117,54 @@ async def get_admin_config():
 
 @app.put("/api/admin/config")
 async def put_admin_config(body: AdminConfigBody = Body(...)):
-    """Actualiza carrera a narrar e información de la carrera. Se guarda en disco hasta que se cambie en otra carrera."""
+    """Actualiza carrera a narrar e información de la carrera. Se guarda en disco y se vuelca a race_data.md."""
     global admin_config
     admin_config = {"race_name": body.race_name or "", "race_info": body.race_info or "", "context": body.context or ""}
     _save_admin_config(admin_config)
+    race_data_manager.write_md_from_admin(admin_config)
+    race_data_manager.reset_state()
     return admin_config
+
+
+@app.get("/api/race-data")
+async def get_race_data():
+    """Devuelve el estado del archivo race_data.md: race_info, contexto restante, contador de usados."""
+    return race_data_manager.get_data_for_prompt()
+
+
+@app.get("/api/race-data/raw")
+async def get_race_data_raw():
+    """Devuelve el contenido crudo del archivo race_data.md (para edicion en UI)."""
+    if race_data_manager.MD_PATH.exists():
+        return {"path": str(race_data_manager.MD_PATH), "content": race_data_manager.MD_PATH.read_text(encoding="utf-8")}
+    return {"path": str(race_data_manager.MD_PATH), "content": ""}
+
+
+class RaceDataRawBody(BaseModel):
+    content: str = ""
+
+
+@app.put("/api/race-data/raw")
+async def put_race_data_raw(body: RaceDataRawBody = Body(...)):
+    """Sobrescribe race_data.md con contenido editado a mano."""
+    race_data_manager.MD_PATH.write_text(body.content or "", encoding="utf-8")
+    race_data_manager.reset_state()
+    return {"ok": True, "path": str(race_data_manager.MD_PATH)}
+
+
+@app.post("/api/race-data/reset")
+async def reset_race_data_state():
+    """Vacia la lista de datos numerados ya usados (vuelve a estar disponible todo)."""
+    race_data_manager.reset_state()
+    return race_data_manager.get_data_for_prompt()
+
+
+@app.post("/api/race-data/sync-from-admin")
+async def sync_race_data_from_admin():
+    """Reescribe race_data.md desde admin_config.json y resetea el contador de usados."""
+    race_data_manager.write_md_from_admin(admin_config)
+    race_data_manager.reset_state()
+    return race_data_manager.get_data_for_prompt()
 
 
 @app.get("/api/narration/source")
@@ -202,14 +248,53 @@ def _state_for_narration():
 
 
 @app.get("/api/commentary/now")
-async def get_commentary_now():
-    """Genera un único comentario (Mark + María) a partir del estado actual (API o Admin según el switch)."""
+async def get_commentary_now(force_race_info: bool = False, force_recap: bool = False, gen: int = 0):
+    """Genera un único comentario (Mark + María) a partir del estado actual.
+
+    Inyecta tambien `context` y `race_info` del Admin para que se vea exactamente
+    igual que el loop continuo. Parametros:
+    - force_race_info=true → simula el bloque "cada 5 comentarios" (race_info para Maria + reminder GP).
+    - force_recap=true → simula el bloque "cada 4 comentarios" (Mark recap TOP 10 + vuelta).
+    - gen=N → fija manualmente el generation_count (override de los flags).
+    """
     state = _state_for_narration()
     deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "")
     if not deepseek_key:
         return {"error": "DEEPSEEK_API_KEY no configurada en .env", "state_used": state, "commentary": []}
     race_name = state.get("admin_race_name") or admin_config.get("race_name", "")
-    commentary = await asyncio.to_thread(generate_race_commentary, deepseek_key, state, race_name=race_name)
+    md_data = race_data_manager.get_data_for_prompt()
+    if md_data.get("race_name") and not race_name:
+        race_name = md_data["race_name"]
+    context = md_data.get("context", "")
+    extra_race_info = md_data.get("race_info", "")
+    if gen > 0:
+        gen_count = gen
+    elif force_race_info and force_recap:
+        gen_count = 20  # 20 % 5 == 0 y 20 % 4 == 0 → ambos bloques activos
+    elif force_race_info:
+        gen_count = 5
+    elif force_recap:
+        gen_count = 4
+    else:
+        gen_count = 1
+    result = await asyncio.to_thread(
+        generate_race_commentary,
+        deepseek_key,
+        state,
+        race_name=race_name,
+        extra_race_info=extra_race_info,
+        context=context,
+        generation_count=gen_count,
+        return_used=True,
+    )
+    if isinstance(result, dict):
+        commentary = result.get("segments", [])
+        used_facts = result.get("used_facts", [])
+        used_info_facts = result.get("used_info_facts", [])
+    else:
+        commentary = result or []
+        used_facts = []
+        used_info_facts = []
     pos_sorted = _sorted_by_position(state.get("positions") or [])
     return {
         "state_used": {
@@ -219,6 +304,19 @@ async def get_commentary_now():
             "top_5": [{"position": p.get("position"), "name": p.get("name"), "team": p.get("team"), "gap": p.get("gap")} for p in pos_sorted[:5]],
             "race_control": state.get("race_control", []),
             "session_info": state.get("session_info", {}),
+            "admin_context_chars": len(context),
+            "admin_race_info_chars": len(extra_race_info),
+            "generation_count": gen_count,
+            "race_info_injected": gen_count > 0 and gen_count % 5 == 0,
+            "recap_injected": gen_count > 0 and gen_count % 4 == 0,
+            "md_facts_total": md_data.get("facts_total", 0),
+            "md_facts_remaining": md_data.get("facts_remaining", 0),
+            "md_exhausted": md_data.get("exhausted", False),
+            "md_info_total": md_data.get("info_total", 0),
+            "md_info_remaining": md_data.get("info_remaining", 0),
+            "md_info_exhausted": md_data.get("info_exhausted", False),
+            "used_facts_declared": used_facts,
+            "used_info_facts_declared": used_info_facts,
         },
         "commentary": commentary,
     }

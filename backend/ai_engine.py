@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import requests
 import json
 import logging
@@ -93,9 +94,37 @@ REFERENCIA PILOTOS/EQUIPOS TEMPORADA 2026 — NO ES ORDEN EN PISTA NI PARRILLA D
 """
 
 SESSION_REMINDER_EVERY = 5  # cada N comentarios se obliga a mencionar GP + sesion
+STANDINGS_RECAP_EVERY = 4   # cada N comentarios Mark hace recap de vuelta + TOP 10
 
 
-def generate_race_commentary(deepseek_api_key: str, race_state: dict, race_name: str = "", extra_race_info: str = "", context: str = "", previous_comments: list = None, generation_count: int = 0) -> list:
+def _parse_used_indices(raw_text: str) -> tuple[str, list[int], list[int]]:
+    """Extrae las lineas USED:[...] y USED_INFO:[...] del texto del AI.
+
+    Devuelve (texto_limpio, ctx_nums, info_nums).
+    """
+    ctx_nums: list[int] = []
+    info_nums: list[int] = []
+    cleaned_lines: list[str] = []
+    pat_info = re.compile(r"USED_INFO\s*:\s*\[([^\]]*)\]", re.IGNORECASE)
+    pat_ctx = re.compile(r"USED\s*:\s*\[([^\]]*)\]", re.IGNORECASE)
+    for line in raw_text.splitlines():
+        m_info = pat_info.search(line)
+        if m_info:
+            for token in re.split(r"[\s,;]+", m_info.group(1).strip()):
+                if token.isdigit():
+                    info_nums.append(int(token))
+            continue
+        m_ctx = pat_ctx.search(line)
+        if m_ctx:
+            for token in re.split(r"[\s,;]+", m_ctx.group(1).strip()):
+                if token.isdigit():
+                    ctx_nums.append(int(token))
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip(), ctx_nums, info_nums
+
+
+def generate_race_commentary(deepseek_api_key: str, race_state: dict, race_name: str = "", extra_race_info: str = "", context: str = "", previous_comments: list = None, generation_count: int = 0, return_used: bool = False) -> list:
     """
     Calls DeepSeek API to generate an analytical, dynamic commentary block 
     structured exactly as Mark: ... Maria: ...
@@ -103,6 +132,7 @@ def generate_race_commentary(deepseek_api_key: str, race_state: dict, race_name:
     extra_race_info: texto que los comentaristas pueden usar; se inyecta en el prompt (el caller lo pasa cada 5 comentarios).
     context: nacionalidad de pilotos, datos interesantes; se inyecta SIEMPRE en cada prompt.
     generation_count: contador de bloques generados; cada SESSION_REMINDER_EVERY se obliga a mencionar GP + sesion.
+    return_used: si True, devuelve dict {segments, used_facts} en lugar de solo la lista.
     """
     if not deepseek_api_key:
         logger.warning("No DeepSeek API key provided. No fallback; returning empty commentary.")
@@ -137,7 +167,7 @@ ESTILO DE APERTURA PARA ESTE COMENTARIO (varía siempre):
 
 CARRERA: {gp_name}
 
-TEXTO CON DATOS DE LA CARRERA (solo puedes usar lo que aparece aquí abajo; está prohibido inventar):
+TEXTO CON DATOS DE LA CARRERA (Mark y Maria pueden usarlo, pero sin repetir el mismo dato):
 {admin_race_info}
 
 === REFERENCIA PILOTOS 2026 (solo si nombráis pilotos válidos — no es orden en pista) ===
@@ -154,12 +184,13 @@ PROHIBIDO (nunca menciones esto):
 - "Sí Mark" como inicio de María.
 
 REGLAS ESTRICTAS:
-1. NO narres que la carrera se ha iniciado ni que está en vivo. Este bloque es solo DATOS INTERESANTES para la carrera: historia del circuito, cuándo se creó, últimos ganadores, anécdotas, condiciones de pista, etc. Todo debe basarse en el texto de arriba.
-2. USA ÚNICAMENTE datos que estén en el texto proporcionado. Si no está escrito, NO lo inventes. Si repites ideas, reformula usando otros datos concretos del mismo texto.
-3. MARK (siempre primero): UNA sola frase corta (máximo ~22 palabras), tono apasionado. Sin tiempos de vuelta.
-4. MARÍA (siempre segundo): UNA sola frase corta distinta a Mark (máximo ~22 palabras). Sin tiempos de vuelta.
-5. NÚMEROS CLAROS: Si mencionas cualquier número decimal, simplifícalo: solo primer dígito, punto, y dos dígitos más. Ej: "1.31" en vez de "1:31.755", "3.84" en vez de "3.847". NUNCA números largos.
-6. Formato de salida exactamente:
+1. NO narres que la carrera se ha iniciado ni que está en vivo. Este bloque es solo DATOS INTERESANTES para la carrera: historia del circuito, cuándo se creó, últimos ganadores, anécdotas, condiciones de pista, etc.
+2. USA ÚNICAMENTE datos que aparezcan en los textos de arriba. Si no está escrito, NO lo inventes. Si repites ideas, reformula con otros datos concretos.
+3. AMBOS narradores pueden usar tanto el TEXTO CON DATOS como el CONTEXTO (datos numerados de abajo) para enriquecer su frase. PERO: NUNCA pueden usar el mismo dato en el mismo bloque. Si Mark elige un año/nombre, Maria toma OTRO distinto. Tampoco repitan datos de bloques anteriores.
+4. MARK (siempre primero): UNA sola frase corta (máximo ~22 palabras), tono apasionado. Sin tiempos de vuelta.
+5. MARÍA (siempre segundo): UNA sola frase corta distinta a Mark (máximo ~22 palabras). Sin tiempos de vuelta.
+6. NÚMEROS CLAROS: Si mencionas cualquier número decimal, simplifícalo: solo primer dígito, punto, y dos dígitos más. Ej: "1.31" en vez de "1:31.755", "3.84" en vez de "3.847". NUNCA números largos.
+7. Formato de salida exactamente:
 Mark:
 [tu texto]
 Maria:
@@ -169,7 +200,9 @@ GENERA el comentario usando solo datos del texto de arriba y respetando la lista
         if context and context.strip():
             pista_prompt += f"""
 
-=== CONTEXTO (nacionalidades, datos de pilotos, úsalo naturalmente) ===
+=== CONTEXTO — DATOS INTERESANTES (cualquiera de los dos narradores puede usarlo) ===
+Lista numerada de datos curiosos / hitos / anecdotas del GP. Mark y Maria pueden tomar de aqui o del TEXTO CON DATOS de arriba, pero nunca el mismo dato en el mismo bloque.
+
 {context.strip()}"""
 
         # Cada N comentarios, recordar GP y tipo de sesion (en pista el tipo no llega del API; usamos texto Admin si lo dice)
@@ -372,15 +405,48 @@ Maria:
 [una frase corta]
 
 """
-    if context and context.strip():
-        prompt += f"""
-=== CONTEXTO (nacionalidades, datos de pilotos, úsalo naturalmente en tus comentarios) ===
+    # Ambos narradores tienen acceso a contexto y race_info como ENRIQUECIMIENTO sobre los datos
+    # del API. Ninguno reemplaza al otro: la accion en pista sigue siendo la base y los datos del
+    # Admin son la "pincelada" historica/curiosa para tejer en la frase. race_info se inyecta cada
+    # SESSION_REMINDER_EVERY bloques porque suele ser un parrafo largo.
+    inject_race_info = (
+        bool(extra_race_info and extra_race_info.strip())
+        and generation_count > 0
+        and (generation_count % SESSION_REMINDER_EVERY) == 0
+    )
+    has_admin_data = bool((context and context.strip()) or inject_race_info)
+    if has_admin_data:
+        prompt += "\n=== DATOS DEL ADMIN (USO EXCLUSIVO DE MARIA) ===\n"
+        prompt += (
+            "Estos son datos curiosos / historicos del GP cargados por el Admin.\n\n"
+            "REGLA DE REPARTO ESTRICTA:\n"
+            "- MARK NO usa NUNCA estos datos. Mark narra UNICAMENTE lo que esta sucediendo en pista "
+            "ahora mismo segun el API: posiciones, gaps, sectores, velocidades, banderas, radio, neumaticos, "
+            "pit stops, incidentes. Su frase NO debe contener años historicos, nombres de pilotos antiguos, "
+            "anecdotas del circuito, ni referencias del Admin. Si lo intenta, ROMPE LA REGLA.\n"
+            "- MARIA es la UNICA que aporta UN dato del Admin en su frase, COMBINADO con un detalle tecnico "
+            "del API (sector, neumatico, velocidad, gap, posicion). Estructura tipica de Maria: "
+            "[detalle tecnico API] + [UN dato del Admin]. Ejemplo: 'Antonelli con un sector 1 de 23.3, "
+            "y aqui en 2007 Hamilton consiguio su primera victoria en F1.'\n"
+            "- Maria NO repite un dato ya usado en COMENTARIOS ANTERIORES.\n"
+            "- UNICA excepcion donde Maria puede saltar el dato del Admin: incidente o mensaje de race "
+            "control prioritario que ocupa toda su frase.\n"
+        )
+        if inject_race_info:
+            prompt += (
+                "- ESTE BLOQUE TIENE PRIORIDAD ESPECIAL: cada " + str(SESSION_REMINDER_EVERY) + " comentarios se "
+                "inyecta INFORMACION DE LA CARRERA. Cuando aparezca, MARIA DEBE elegir su dato de la lista "
+                "INFORMACION DE LA CARRERA (no del CONTEXTO). En este bloque la fuente OBLIGATORIA para Maria "
+                "es INFORMACION DE LA CARRERA. El CONTEXTO se ignora SOLO en este bloque.\n"
+            )
+        prompt += "\n"
+        if context and context.strip():
+            prompt += f"""--- CONTEXTO (lista numerada; SOLO Maria cita UNO; nunca repetir) ---
 {context.strip()}
 
 """
-    if extra_race_info and extra_race_info.strip():
-        prompt += f"""
-=== INFORMACIÓN ADICIONAL DE LA CARRERA (incorpora algún dato de interés en tu comentario) ===
+        if inject_race_info:
+            prompt += f"""--- INFORMACION ADICIONAL DE LA CARRERA (lista numerada; SOLO Maria cita UNO en este bloque cada {SESSION_REMINDER_EVERY} comentarios; nunca repetir) ---
 {extra_race_info.strip()}
 
 """
@@ -405,20 +471,99 @@ Maria:
     if generation_count > 0 and (generation_count % SESSION_REMINDER_EVERY) == 0 and gp_for_reminder:
         prompt += f"""
 === RECORDATORIO DE CONTEXTO (OBLIGATORIO en este bloque) ===
-Mark debe abrir mencionando NATURALMENTE que estamos en la {session_lbl} del {gp_for_reminder} (variando la forma exacta, sin sonar a anuncio). Maria sigue con su analisis breve normal. Hacerlo en una sola frase corta, sin repetir despues.
+Mark debe abrir mencionando NATURALMENTE que estamos en la {session_lbl} del {gp_for_reminder} (variando la forma exacta, sin sonar a anuncio). Mark sigue solo con la accion en pista, NO inserta dato historico. Maria sigue con su analisis breve y aporta UN dato historico del Admin.
 
 """
-    prompt += """GENERA AHORA el comentario para los datos actuales. Debe ser DIFERENTE a los anteriores.
+
+    # Cada STANDINGS_RECAP_EVERY bloques Mark da un recap del TOP 10 + vuelta/tiempo de sesion.
+    is_recap_block = generation_count > 0 and (generation_count % STANDINGS_RECAP_EVERY) == 0
+    if is_recap_block:
+        top_10 = positions[:10]
+        top_10_str = ", ".join([
+            f"P{p.get('position', '?')} {(p.get('name') or p.get('tla') or '').split()[-1].upper()}"
+            for p in top_10
+        ]) or "sin datos suficientes"
+        if is_practice:
+            time_line = (
+                f"quedan {clock_remaining} de la {session_lbl.lower()}"
+                if clock_remaining and not clock_is_finished
+                else f"{session_lbl} finalizada"
+            )
+        else:
+            time_line = f"vuelta {lap}{f' de {total_laps}' if total_laps else ''}"
+            if clock_remaining and not clock_is_finished:
+                time_line += f", quedan {clock_remaining}"
+
+        prompt += f"""
+=== RECAP DE POSICIONES (cada {STANDINGS_RECAP_EVERY} comentarios — REGLA QUE SUSTITUYE LAS REGLAS DE MARK) ===
+ESTE bloque NO sigue el formato "una frase corta de Mark". En su lugar Mark hace un RECAP COMPLETO obligatorio.
+
+INSTRUCCIONES PARA MARK (este bloque):
+1. ABRE con la situacion temporal exactamente: "{time_line}".
+2. ENUMERA LOS DIEZ pilotos del TOP 10 en orden, mencionando el APELLIDO de cada uno. Es OBLIGATORIO nombrar a los DIEZ; no resumir, no agrupar diciendo "los Mercedes uno-dos" sin nombres, no decir "y atras los demas".
+3. Tono de comentarista de TV haciendo un recap fluido (puedes usar "primero X, segundo Y, tercero Z..." o "lidera X, le sigue Y, completa el podio Z, despues vienen W, V, U...").
+4. Mark puede usar HASTA 70 palabras este bloque (excepcion al limite habitual). Mark NO inserta dato del Admin en este bloque para no saturar.
+
+ORDEN EXACTO DEL TOP 10 (apellidos en mayuscula; usalos tal cual):
+{top_10_str}
+
+INSTRUCCIONES PARA MARIA (este bloque):
+- UNA sola frase corta como siempre (max ~22 palabras).
+- AÑADE UN dato del Admin (CONTEXTO o INFORMACION ADICIONAL) que NO haya mencionado Mark + opcionalmente un detalle tecnico (sector / velocidad / neumatico del lider o del piloto que se mueve).
+
 """
+
+    if has_admin_data:
+        prompt += """GENERA AHORA el comentario. Debe ser DIFERENTE a los anteriores.
+ESTRUCTURA POR VOZ:
+- MARK: solo accion en pista del API (posiciones, gaps, sectores, velocidades, banderas, radio, neumaticos, incidentes). PROHIBIDO citar años, pilotos antiguos o anecdotas del Admin.
+- MARIA: [detalle tecnico del API] + [UN dato del Admin distinto a los ya usados antes].
+"""
+        if inject_race_info:
+            prompt += (
+                "PRIORIDAD EN ESTE BLOQUE: Maria toma su dato de INFORMACION DE LA CARRERA "
+                "(no del CONTEXTO). Despues escribe USED_INFO:[<numero>] con el item de "
+                "INFORMACION DE LA CARRERA que cito, y USED:[] vacio.\n"
+            )
+    else:
+        prompt += """GENERA AHORA el comentario para los datos actuales. Debe ser DIFERENTE a los anteriores.
+"""
+
+    if (context and context.strip()) or inject_race_info:
+        traceability = "\n=== TRACEABILIDAD DE DATOS (OBLIGATORIO al final) ===\n"
+        traceability += "Despues de Mark y Maria, en LINEAS NUEVAS al final, escribe EXACTAMENTE:\n"
+        if context and context.strip():
+            traceability += "USED:[<numeros del CONTEXTO que MARIA cito; vacio si ninguno>]\n"
+        if inject_race_info:
+            traceability += "USED_INFO:[<numeros de INFORMACION DE LA CARRERA que MARIA cito; vacio si ninguno>]\n"
+        traceability += (
+            "Ejemplo si Maria uso CONTEXTO 7 e INFORMACION 3:\n"
+            "  USED:[7]\n"
+            "  USED_INFO:[3]\n"
+            "Solo Maria puede citar datos del Admin. Mark NO cita datos numerados. "
+            "Si por incidente/race control no se uso ningun dato, escribe la(s) linea(s) con corchetes vacios.\n"
+        )
+        prompt += traceability
+
+    if is_recap_block:
+        system_msg = (
+            "Eres narración F1 en vivo. Formato:\nMark:\n[recap del TOP 10 con los DIEZ apellidos en orden, hasta 70 palabras]\n\nMaria:\n[una frase corta de enriquecimiento]\n\nUSED:[numeros]\nUSED_INFO:[numeros]"
+        )
+        max_tokens_use = 520
+    else:
+        system_msg = (
+            "Eres narración F1 en vivo. SOLO formato:\nMark:\n[una frase corta]\n\nMaria:\n[una frase corta]\n\nUSED:[numeros]\nUSED_INFO:[numeros]\nSin párrafos largos."
+        )
+        max_tokens_use = 320
 
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "Eres narración F1 en vivo. SOLO formato:\nMark:\n[una frase corta]\n\nMaria:\n[una frase corta]\nSin párrafos largos."},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.82,
-        "max_tokens": 320
+        "max_tokens": max_tokens_use
     }
 
     try:
@@ -427,13 +572,24 @@ Mark debe abrir mencionando NATURALMENTE que estamos en la {session_lbl} del {gp
         result = response.json()
         raw_text = result["choices"][0]["message"]["content"]
         logger.info(f"DeepSeek raw response:\n{raw_text}")
-        segments = parse_commentary(raw_text)
+        cleaned_text, used_facts, used_info = _parse_used_indices(raw_text)
+        if used_facts or used_info:
+            logger.info(f"AI declaro USED:{used_facts} USED_INFO:{used_info}")
+        segments = parse_commentary(cleaned_text)
         for seg in segments:
-            seg["text"] = _clip_radio_phrase(seg.get("text", ""))
+            # En bloques recap Mark puede ser largo (TOP 10); permitimos hasta 600 chars solo a Mark.
+            if is_recap_block and seg.get("narrator") == "Mark":
+                seg["text"] = _clip_radio_phrase(seg.get("text", ""), 600)
+            else:
+                seg["text"] = _clip_radio_phrase(seg.get("text", ""))
         logger.info(f"Parsed {len(segments)} segments: {[s['narrator'] for s in segments]}")
+        if return_used:
+            return {"segments": segments, "used_facts": used_facts, "used_info_facts": used_info}
         return segments
     except Exception as e:
         logger.error(f"DeepSeek API Error: {e}")
+        if return_used:
+            return {"segments": [], "used_facts": [], "used_info_facts": []}
         return []
 
 

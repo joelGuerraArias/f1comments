@@ -80,6 +80,9 @@ docker-compose.override.local.yaml
 # admin_config.json es config local; comentar si quieres versionarla.
 # backend/admin_config.json
 
+# Estado runtime del tracking de datos usados (cambia con cada generacion del loop)
+backend/race_data_state.json
+
 # Backups y temporales
 *.bak
 *.tmp

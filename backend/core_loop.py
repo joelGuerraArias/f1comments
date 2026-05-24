@@ -2,6 +2,7 @@ import time
 import asyncio
 import logging
 from ai_engine import generate_race_commentary
+import race_data_manager
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +87,28 @@ class NarrationLoop:
                         current_lap = state.get("lap", current_lap)
 
                     race_name = (state.get("admin_race_name") or "").strip()
-                    extra_race_info = ""
-                    context = ""
-                    if self.get_admin_config:
-                        admin = self.get_admin_config()
-                        if admin:
-                            context = (admin.get("context") or "").strip()
-                            extra_race_info = (admin.get("race_info") or "").strip()
-                    if source == "pista":
-                        extra_race_info = (state.get("admin_race_info") or "").strip()
 
-                    segments = await asyncio.to_thread(
+                    md_data = race_data_manager.get_data_for_prompt()
+                    if md_data.get("race_name") and not race_name:
+                        race_name = md_data["race_name"]
+                    context = md_data.get("context", "")
+                    extra_race_info = md_data.get("race_info", "")
+                    if source == "pista" and not extra_race_info:
+                        extra_race_info = (state.get("admin_race_info") or "").strip()
+                    if md_data.get("exhausted"):
+                        logger.info(
+                            "CONTEXTO del MD agotado (%d/%d). Narradores siguen solo con API + race_info.",
+                            md_data.get("facts_used", 0),
+                            md_data.get("facts_total", 0),
+                        )
+                    if md_data.get("info_exhausted"):
+                        logger.info(
+                            "RACE_INFO del MD agotado (%d/%d). Bloque cada 5 ya no se inyecta.",
+                            md_data.get("info_used", 0),
+                            md_data.get("info_total", 0),
+                        )
+
+                    result = await asyncio.to_thread(
                         generate_race_commentary,
                         self.deepseek_api_key,
                         state,
@@ -105,7 +117,26 @@ class NarrationLoop:
                         context=context,
                         previous_comments=self.previous_comments,
                         generation_count=self.generation_count + 1,
+                        return_used=True,
                     )
+                    if isinstance(result, dict):
+                        segments = result.get("segments", [])
+                        used_facts = result.get("used_facts", [])
+                        used_info = result.get("used_info_facts", [])
+                    else:
+                        segments = result or []
+                        used_facts = []
+                        used_info = []
+                    if used_facts:
+                        valid_used = [n for n in used_facts if n in md_data.get("available_numbers", [])]
+                        if valid_used:
+                            race_data_manager.mark_facts_used(valid_used)
+                            logger.info("CONTEXTO marcado como usado: %s", valid_used)
+                    if used_info:
+                        valid_info = [n for n in used_info if n in md_data.get("available_info_numbers", [])]
+                        if valid_info:
+                            race_data_manager.mark_info_used(valid_info)
+                            logger.info("RACE_INFO marcado como usado: %s", valid_info)
                     self.generation_count += 1
                     if segments:
                         new_texts = [s.get("text", "") for s in segments]
